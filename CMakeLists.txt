@@ -51,6 +51,11 @@ set_target_properties(appWaveOrdering PROPERTIES
     WIN32_EXECUTABLE TRUE
 )
 
+target_include_directories(appWaveOrdering
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
 target_link_libraries(appWaveOrdering
     PRIVATE
         Qt6::Quick
