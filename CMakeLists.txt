@@ -58,6 +58,17 @@ target_link_libraries(appWaveOrdering
         Qt6::QuickControls2
 )
 
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    set(APP_ICON_ASSETS ${CMAKE_CURRENT_SOURCE_DIR}/ios/Assets.xcassets)
+    target_sources(appWaveOrdering PRIVATE ${APP_ICON_ASSETS})
+    set_source_files_properties(${APP_ICON_ASSETS} PROPERTIES
+        MACOSX_PACKAGE_LOCATION "Resources"
+    )
+    set_target_properties(appWaveOrdering PROPERTIES
+        XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME "AppIcon"
+    )
+endif()
+
 include(GNUInstallDirs)
 install(TARGETS appWaveOrdering
     BUNDLE DESTINATION .
