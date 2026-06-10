@@ -128,6 +128,28 @@ QString Database::connectionName()
     return kConnectionName;
 }
 
+QString Database::settingValue(const QString &key, const QString &defaultValue)
+{
+    QSqlQuery q(QSqlDatabase::database(kConnectionName));
+    q.prepare(QStringLiteral("SELECT value FROM app_settings WHERE key = ?"));
+    q.addBindValue(key);
+    if (q.exec() && q.next())
+        return q.value(0).toString();
+    return defaultValue;
+}
+
+void Database::setSettingValue(const QString &key, const QString &value)
+{
+    QSqlQuery q(QSqlDatabase::database(kConnectionName));
+    q.prepare(QStringLiteral(R"(
+        INSERT INTO app_settings (key, value) VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    )"));
+    q.addBindValue(key);
+    q.addBindValue(value);
+    q.exec();
+}
+
 void Database::createSchema()
 {
     QSqlDatabase db = QSqlDatabase::database(kConnectionName);
@@ -180,6 +202,13 @@ void Database::createSchema()
             unit_price REAL NOT NULL,
             quantity INTEGER NOT NULL,
             line_total REAL NOT NULL
+        )
+    )"));
+
+    q.exec(QStringLiteral(R"(
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
         )
     )"));
 }

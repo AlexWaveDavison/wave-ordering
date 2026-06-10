@@ -11,6 +11,10 @@ public:
     static bool initialize();
     static QString connectionName();
 
+    // Small key/value store for app preferences (e.g. customer/account name).
+    static QString settingValue(const QString &key, const QString &defaultValue = QString());
+    static void setSettingValue(const QString &key, const QString &value);
+
 private:
     static void createSchema();
     static void seedIfEmpty();

@@ -65,6 +65,26 @@ Page {
 
                 RowLayout {
                     Layout.fillWidth: true
+                    spacing: Theme.spacingSmall
+
+                    TextField {
+                        id: customerField
+                        Layout.fillWidth: true
+                        placeholderText: qsTr("Customer name")
+                        text: appController.customerName
+                        onEditingFinished: appController.customerName = text
+                    }
+                    TextField {
+                        id: accountField
+                        Layout.fillWidth: true
+                        placeholderText: qsTr("Account name")
+                        text: appController.accountName
+                        onEditingFinished: appController.accountName = text
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
 
                     Label {
                         Layout.fillWidth: true
@@ -93,8 +113,10 @@ Page {
                     Material.background: Theme.primary
                     Material.foreground: Theme.textOnPrimary
                     onClicked: {
+                        const shareText = appController.buildShareText(notesField.text)
                         if (appController.placeOrder(notesField.text)) {
                             notesField.text = ""
+                            appController.shareViaWhatsApp(shareText)
                             confirmDialog.open()
                         }
                     }
@@ -111,7 +133,7 @@ Page {
         standardButtons: Dialog.Ok
 
         Label {
-            text: qsTr("Your order has been saved. View it in the Orders tab.")
+            text: qsTr("Your order has been saved. Choose a contact in WhatsApp to send the order summary.")
             wrapMode: Text.WordWrap
         }
     }
