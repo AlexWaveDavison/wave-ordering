@@ -54,7 +54,7 @@ Rectangle {
                       : qsTr("Price on application")
                 font.pixelSize: Theme.fontSizeBody
                 font.bold: true
-                color: Theme.primary
+                color: Theme.accent
             }
         }
 

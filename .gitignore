@@ -6,3 +6,4 @@ CMakeLists.txt.user
 .qtc_clangd/
 .vs/
 *.sqlite
+*.ipa

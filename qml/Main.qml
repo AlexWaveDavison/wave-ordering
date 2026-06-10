@@ -37,7 +37,8 @@ ApplicationWindow {
                 }
                 Label {
                     text: qsTr("Wholesale Ordering Demo")
-                    color: Qt.rgba(1, 1, 1, 0.78)
+                    color: Theme.textOnPrimary
+                    opacity: 0.78
                     font.pixelSize: Theme.fontSizeCaption
                 }
             }

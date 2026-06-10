@@ -12,6 +12,7 @@ qt_standard_project_setup(REQUIRES 6.5)
 
 qt_add_executable(appWaveOrdering
     src/main.cpp
+    src/theme.h
     src/database.h
     src/database.cpp
     src/categorymodel.h
@@ -31,7 +32,6 @@ qt_add_qml_module(appWaveOrdering
     VERSION 1.0
     QML_FILES
         qml/Main.qml
-        qml/Theme.qml
         qml/pages/CatalogPage.qml
         qml/pages/CartPage.qml
         qml/pages/OrdersPage.qml
