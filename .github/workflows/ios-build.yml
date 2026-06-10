@@ -1,0 +1,59 @@
+name: iOS unsigned build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+env:
+  QT_VERSION: "6.7.2"
+
+jobs:
+  build-ios:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install aqtinstall
+        run: pip install aqtinstall
+
+      - name: Install Qt for macOS (host tools)
+        run: aqt install-qt mac desktop ${{ env.QT_VERSION }} -O ${{ runner.temp }}/Qt
+
+      - name: Install Qt for iOS
+        run: aqt install-qt mac ios ${{ env.QT_VERSION }} -O ${{ runner.temp }}/Qt
+
+      - name: Configure (CMake + Xcode, code signing disabled)
+        run: |
+          "${{ runner.temp }}/Qt/${{ env.QT_VERSION }}/ios/bin/qt-cmake" \
+            -S . -B build-ios -G Xcode \
+            -DQT_HOST_PATH="${{ runner.temp }}/Qt/${{ env.QT_VERSION }}/macos" \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED=NO \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY="" \
+            -DCMAKE_XCODE_ATTRIBUTE_EXPANDED_CODE_SIGN_IDENTITY="" \
+            -DCMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM=""
+
+      - name: Build (Release, device)
+        run: cmake --build build-ios --config Release -- -sdk iphoneos
+
+      - name: Package unsigned .ipa
+        run: |
+          cd build-ios
+          APP_PATH=$(find . -maxdepth 4 -name "appWaveOrdering.app" -path "*iphoneos*" | head -n1)
+          echo "App bundle: $APP_PATH"
+          mkdir -p Payload
+          cp -r "$APP_PATH" Payload/
+          zip -r ../WaveOrdering.ipa Payload
+
+      - name: Upload .ipa artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WaveOrdering-unsigned-ipa
+          path: WaveOrdering.ipa
