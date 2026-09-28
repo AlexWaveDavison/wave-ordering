@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QColor>
+#include <QList>
 #include <QObject>
 #include <QQmlEngine>
 
@@ -27,7 +28,11 @@ class Theme : public QObject
     Q_PROPERTY(QColor textOnPrimary READ textOnPrimary CONSTANT)
 
     Q_PROPERTY(QColor success READ success CONSTANT)
+    Q_PROPERTY(QColor warning READ warning CONSTANT)
     Q_PROPERTY(QColor danger READ danger CONSTANT)
+
+    // Colours used for the per-category product tiles.
+    Q_PROPERTY(QList<QColor> categoryColors READ categoryColors CONSTANT)
 
     Q_PROPERTY(int radiusSmall READ radiusSmall CONSTANT)
     Q_PROPERTY(int radiusMedium READ radiusMedium CONSTANT)
@@ -62,7 +67,14 @@ public:
     QColor textOnPrimary() const { return QColor("#F6F3EA"); }
 
     QColor success() const { return QColor("#2F7D6B"); }
+    QColor warning() const { return QColor("#B26A00"); }
     QColor danger() const { return QColor("#C0392B"); }
+
+    QList<QColor> categoryColors() const
+    {
+        return {QColor("#3D6FA3"), QColor("#C0392B"), QColor("#2F7D6B"), QColor("#B26A00"),
+                QColor("#6B4C9A"), QColor("#16263F"), QColor("#8C5A3C"), QColor("#2A7FA0")};
+    }
 
     int radiusSmall() const { return 8; }
     int radiusMedium() const { return 14; }

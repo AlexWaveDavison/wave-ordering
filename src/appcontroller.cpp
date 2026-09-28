@@ -3,149 +3,138 @@
 #include "cartmodel.h"
 #include "database.h"
 #include "ordermodel.h"
-#include "productmodel.h"
+#include "orderstore.h"
 
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDesktopServices>
-#include <QSqlDatabase>
-#include <QSqlQuery>
-#include <QStringList>
 #include <QUrl>
 
-AppController::AppController(CartModel *cart, OrderModel *orders, ProductModel *products, QObject *parent)
+namespace {
+const QString kCustomerNameKey = QStringLiteral("customer_name");
+const QString kAccountNameKey = QStringLiteral("account_name");
+} // namespace
+
+AppController::AppController(CartModel *cart, OrderModel *orders, QObject *parent)
     : QObject(parent)
     , m_cart(cart)
     , m_orders(orders)
-    , m_products(products)
-    , m_customerName(Database::settingValue(QStringLiteral("customer_name")))
-    , m_accountName(Database::settingValue(QStringLiteral("account_name")))
+    , m_customerName(Database::settingValue(kCustomerNameKey))
+    , m_accountName(Database::settingValue(kAccountNameKey))
 {
 }
 
-bool AppController::placeOrder(const QString &notes)
+AppController *AppController::create(QQmlEngine *, QJSEngine *jsEngine)
 {
-    if (m_cart->rowCount() == 0)
-        return false;
-
-    QSqlDatabase db = QSqlDatabase::database(Database::connectionName());
-    if (!db.transaction())
-        return false;
-
-    QSqlQuery insertOrder(db);
-    insertOrder.prepare(QStringLiteral(
-        "INSERT INTO orders (created_at, status, notes, total) VALUES (?, 'Submitted', ?, ?)"));
-    insertOrder.addBindValue(QDateTime::currentDateTime().toString(Qt::ISODate));
-    insertOrder.addBindValue(notes);
-    insertOrder.addBindValue(m_cart->total());
-    if (!insertOrder.exec()) {
-        db.rollback();
-        return false;
-    }
-
-    const int orderId = insertOrder.lastInsertId().toInt();
-
-    QSqlQuery insertItem(db);
-    insertItem.prepare(QStringLiteral(R"(
-        INSERT INTO order_items (order_id, product_name, sku, unit, unit_price, quantity, line_total)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    )"));
-
-    for (int row = 0; row < m_cart->rowCount(); ++row) {
-        const QModelIndex idx = m_cart->index(row);
-        insertItem.addBindValue(orderId);
-        insertItem.addBindValue(m_cart->data(idx, CartModel::NameRole));
-        insertItem.addBindValue(m_cart->data(idx, CartModel::SkuRole));
-        insertItem.addBindValue(m_cart->data(idx, CartModel::UnitRole));
-        insertItem.addBindValue(m_cart->data(idx, CartModel::PriceRole));
-        insertItem.addBindValue(m_cart->data(idx, CartModel::QuantityRole));
-        insertItem.addBindValue(m_cart->data(idx, CartModel::LineTotalRole));
-        if (!insertItem.exec()) {
-            db.rollback();
-            return false;
-        }
-    }
-
-    db.commit();
-
-    m_cart->clear();
-    m_orders->refresh();
-    m_products->refresh();
-    return true;
-}
-
-QString AppController::customerName() const
-{
-    return m_customerName;
+    Q_ASSERT_X(s_instance, "AppController::create", "setInstance() must be called before QML loads");
+    Q_ASSERT(jsEngine->thread() == s_instance->thread());
+    QJSEngine::setObjectOwnership(s_instance, QJSEngine::CppOwnership);
+    return s_instance;
 }
 
 void AppController::setCustomerName(const QString &name)
 {
-    if (m_customerName == name)
+    const QString trimmed = name.trimmed();
+    if (m_customerName == trimmed)
         return;
-    m_customerName = name;
-    Database::setSettingValue(QStringLiteral("customer_name"), name);
+    m_customerName = trimmed;
+    Database::setSettingValue(kCustomerNameKey, trimmed);
     emit accountDetailsChanged();
-}
-
-QString AppController::accountName() const
-{
-    return m_accountName;
 }
 
 void AppController::setAccountName(const QString &name)
 {
-    if (m_accountName == name)
+    const QString trimmed = name.trimmed();
+    if (m_accountName == trimmed)
         return;
-    m_accountName = name;
-    Database::setSettingValue(QStringLiteral("account_name"), name);
+    m_accountName = trimmed;
+    Database::setSettingValue(kAccountNameKey, trimmed);
     emit accountDetailsChanged();
 }
 
-QString AppController::buildShareText(const QString &notes) const
+QString AppController::appVersion() const
 {
-    auto formatRow = [](const QString &ref, const QString &name, const QString &qty, const QString &price) {
-        QString shortName = name;
-        if (shortName.size() > 18)
-            shortName = shortName.left(16) + QStringLiteral("..");
-        return QStringLiteral("%1 %2 %3 %4")
-            .arg(ref.left(10), -10)
-            .arg(shortName, -18)
-            .arg(qty, 3)
-            .arg(price, 7);
-    };
-
-    QStringList lines;
-    lines << QStringLiteral("*Wave Ordering - New Order*");
-    lines << QString();
-    lines << QStringLiteral("Customer: %1").arg(m_customerName.isEmpty() ? QStringLiteral("-") : m_customerName);
-    lines << QStringLiteral("Account: %1").arg(m_accountName.isEmpty() ? QStringLiteral("-") : m_accountName);
-    lines << QString();
-    lines << QStringLiteral("```");
-    lines << formatRow(QStringLiteral("Ref"), QStringLiteral("Product"), QStringLiteral("Qty"), QStringLiteral("Price"));
-
-    for (int row = 0; row < m_cart->rowCount(); ++row) {
-        const QModelIndex idx = m_cart->index(row);
-        const QString sku = m_cart->data(idx, CartModel::SkuRole).toString();
-        const QString name = m_cart->data(idx, CartModel::NameRole).toString();
-        const QString qty = QString::number(m_cart->data(idx, CartModel::QuantityRole).toInt());
-        const QString price = QStringLiteral("£%1").arg(m_cart->data(idx, CartModel::PriceRole).toDouble(), 0, 'f', 2);
-        lines << formatRow(sku, name, qty, price);
-    }
-
-    lines << QStringLiteral("```");
-    lines << QString();
-    lines << QStringLiteral("*Total: £%1*").arg(m_cart->total(), 0, 'f', 2);
-
-    if (!notes.trimmed().isEmpty()) {
-        lines << QString();
-        lines << QStringLiteral("Notes: %1").arg(notes.trimmed());
-    }
-
-    return lines.join(QLatin1Char('\n'));
+    return QCoreApplication::applicationVersion();
 }
 
-void AppController::shareViaWhatsApp(const QString &text) const
+int AppController::placeOrder(const QString &notes)
 {
-    const QString url = QStringLiteral("https://wa.me/?text=") + QString::fromUtf8(QUrl::toPercentEncoding(text));
-    QDesktopServices::openUrl(QUrl(url));
+    if (m_cart->lineCount() == 0)
+        return -1;
+
+    OrderRecord order;
+    order.createdAt = QDateTime::currentDateTime();
+    order.status = OrderStore::StatusPending;
+    order.customerName = m_customerName;
+    order.accountName = m_accountName;
+    order.notes = notes.trimmed();
+
+    for (const CartLine &cartLine : m_cart->lines()) {
+        OrderLine line;
+        line.productId = cartLine.productId;
+        line.name = cartLine.name;
+        line.sku = cartLine.sku;
+        line.unit = cartLine.unit;
+        line.unitPricePence = cartLine.pricePence;
+        line.quantity = cartLine.quantity;
+        order.lines.append(line);
+    }
+
+    const int orderId = OrderStore::create(order);
+    if (orderId < 0) {
+        emit errorOccurred(tr("Your order couldn't be saved. Your basket hasn't been changed — please try again."));
+        return -1;
+    }
+
+    m_cart->clear();
+    m_orders->refresh();
+    return orderId;
+}
+
+QString AppController::orderShareText(int orderId) const
+{
+    const std::optional<OrderRecord> order = OrderStore::load(orderId);
+    return order ? buildOrderShareText(*order) : QString();
+}
+
+bool AppController::shareOrderViaWhatsApp(int orderId)
+{
+    const QString text = orderShareText(orderId);
+    if (text.isEmpty())
+        return false;
+
+    const QUrl url(QStringLiteral("https://wa.me/?text=") + QString::fromUtf8(QUrl::toPercentEncoding(text)));
+    if (!QDesktopServices::openUrl(url)) {
+        emit errorOccurred(tr("Couldn't open WhatsApp on this device."));
+        return false;
+    }
+    return true;
+}
+
+bool AppController::markOrderSent(int orderId)
+{
+    if (!OrderStore::markSent(orderId)) {
+        emit errorOccurred(tr("Couldn't update the order status."));
+        return false;
+    }
+    m_orders->refresh();
+    return true;
+}
+
+int AppController::reorder(int orderId)
+{
+    const std::optional<OrderRecord> order = OrderStore::load(orderId);
+    if (!order)
+        return 0;
+
+    int added = 0;
+    for (const OrderLine &line : order->lines) {
+        if (line.productId < 0)
+            continue;
+        const int before = m_cart->quantityForProduct(line.productId);
+        m_cart->addProduct(line.productId, line.quantity);
+        if (m_cart->quantityForProduct(line.productId) != before)
+            ++added;
+    }
+    return added;
 }

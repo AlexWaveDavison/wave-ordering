@@ -1,73 +1,89 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 import WaveOrdering
 
+// One catalogue row. Role values are injected by the ListView via the
+// required properties below.
 Rectangle {
     id: card
 
-    property int productId: -1
-    property string name: ""
-    property string sku: ""
-    property string unit: ""
-    property real price: 0
-    property int quantityInCart: 0
+    required property int productId
+    required property int categoryId
+    required property string categoryName
+    required property string name
+    required property string sku
+    required property string unit
+    required property string priceText
+    required property bool isPoa
+    required property int quantityInCart
 
     signal openDetails()
 
     radius: Theme.radiusMedium
-    color: Theme.surface
-    border.color: Theme.border
+    color: tap.pressed ? Qt.rgba(Theme.border.r, Theme.border.g, Theme.border.b, 0.4) : Theme.surface
+    border.color: quantityInCart > 0 ? Theme.primaryLight : Theme.border
     border.width: 1
-    implicitHeight: Math.max(96, contentRow.implicitHeight + Theme.spacingMedium * 2)
+    implicitHeight: Math.max(84, contentRow.implicitHeight + 24)
+
+    // Declared before the content so the stepper's own buttons sit on top.
+    MouseArea {
+        id: tap
+        anchors.fill: parent
+        onClicked: card.openDetails()
+    }
 
     RowLayout {
         id: contentRow
         anchors.fill: parent
-        anchors.margins: Theme.spacingMedium
-        spacing: Theme.spacingMedium
+        anchors.margins: 12
+        spacing: 12
+
+        ProductTile {
+            Layout.alignment: Qt.AlignTop
+            categoryId: card.categoryId
+            categoryName: card.categoryName
+        }
 
         ColumnLayout {
             Layout.fillWidth: true
-            spacing: 4
+            spacing: 2
 
-            Text {
+            Label {
                 Layout.fillWidth: true
                 text: card.name
                 font.pixelSize: Theme.fontSizeBody
                 font.bold: true
                 color: Theme.textPrimary
                 wrapMode: Text.WordWrap
+                maximumLineCount: 2
+                elide: Text.ElideRight
             }
 
-            Text {
-                visible: text.length > 0
-                text: card.sku.length > 0
-                      ? qsTr("SKU %1 · %2").arg(card.sku).arg(card.unit)
-                      : card.unit
+            Label {
+                Layout.fillWidth: true
+                text: card.sku.length > 0 ? qsTr("%1 · %2").arg(card.sku).arg(card.unit) : card.unit
                 font.pixelSize: Theme.fontSizeCaption
                 color: Theme.textSecondary
+                elide: Text.ElideRight
             }
 
-            Text {
-                text: card.price > 0
-                      ? "£" + card.price.toFixed(2)
-                      : qsTr("Price on application")
+            Label {
+                Layout.topMargin: 2
+                text: card.isPoa ? qsTr("Price on application") : card.priceText
                 font.pixelSize: Theme.fontSizeBody
-                font.bold: true
-                color: Theme.accent
+                font.bold: !card.isPoa
+                font.italic: card.isPoa
+                color: card.isPoa ? Theme.textSecondary : Theme.primary
             }
         }
 
         QuantityStepper {
+            Layout.alignment: Qt.AlignVCenter
+            showAddWhenZero: true
             quantity: card.quantityInCart
-            onIncrease: cartModel.increment(card.productId)
-            onDecrease: cartModel.decrement(card.productId)
+            onIncrease: CartModel.increment(card.productId)
+            onDecrease: CartModel.decrement(card.productId)
         }
-    }
-
-    MouseArea {
-        anchors.fill: parent
-        z: -1
-        onClicked: card.openDetails()
     }
 }

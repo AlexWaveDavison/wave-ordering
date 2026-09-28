@@ -1,71 +1,98 @@
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Controls.Material
 import QtQuick.Layouts
 import WaveOrdering
 
+// One basket row. Role values are injected by the ListView.
 Rectangle {
-    id: delegateRoot
+    id: row
 
-    property int productId: -1
-    property string name: ""
-    property string sku: ""
-    property string unit: ""
-    property real price: 0
-    property int quantity: 0
-    property real lineTotal: 0
+    required property int productId
+    required property string name
+    required property string sku
+    required property string unit
+    required property string priceText
+    required property bool isPoa
+    required property int quantity
+    required property string lineTotalText
 
     radius: Theme.radiusMedium
     color: Theme.surface
     border.color: Theme.border
     border.width: 1
-    implicitHeight: Math.max(96, contentRow.implicitHeight + Theme.spacingMedium * 2)
+    implicitHeight: content.implicitHeight + 24
 
-    RowLayout {
-        id: contentRow
+    ColumnLayout {
+        id: content
         anchors.fill: parent
-        anchors.margins: Theme.spacingMedium
-        spacing: Theme.spacingMedium
+        anchors.margins: 12
+        anchors.rightMargin: 4
+        spacing: 8
 
-        ColumnLayout {
+        RowLayout {
             Layout.fillWidth: true
             spacing: 4
 
-            Text {
+            ColumnLayout {
                 Layout.fillWidth: true
-                text: delegateRoot.name
-                font.pixelSize: Theme.fontSizeBody
-                font.bold: true
-                color: Theme.textPrimary
-                wrapMode: Text.WordWrap
+                spacing: 2
+
+                Label {
+                    Layout.fillWidth: true
+                    text: row.name
+                    font.pixelSize: Theme.fontSizeBody
+                    font.bold: true
+                    color: Theme.textPrimary
+                    wrapMode: Text.WordWrap
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    text: (row.sku.length > 0 ? row.sku + " · " : "") + row.unit
+                    font.pixelSize: Theme.fontSizeCaption
+                    color: Theme.textSecondary
+                    elide: Text.ElideRight
+                }
             }
 
-            Text {
-                text: (delegateRoot.sku.length > 0 ? qsTr("SKU %1 · ").arg(delegateRoot.sku) : "")
-                      + delegateRoot.unit + qsTr(" · £%1 each").arg(delegateRoot.price.toFixed(2))
+            ToolButton {
+                Layout.alignment: Qt.AlignTop
+                Layout.topMargin: -8
+                text: "✕"
+                font.pixelSize: 14
+                onClicked: CartModel.removeProduct(row.productId)
+                Accessible.name: qsTr("Remove %1").arg(row.name)
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Remove")
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.rightMargin: 8
+            spacing: Theme.spacingMedium
+
+            QuantityStepper {
+                quantity: row.quantity
+                minimumValue: 1
+                onIncrease: CartModel.increment(row.productId)
+                onDecrease: CartModel.decrement(row.productId)
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: row.isPoa ? qsTr("Price on application") : qsTr("%1 each").arg(row.priceText)
                 font.pixelSize: Theme.fontSizeCaption
                 color: Theme.textSecondary
+                elide: Text.ElideRight
             }
 
-            Text {
-                text: qsTr("Line total: £%1").arg(delegateRoot.lineTotal.toFixed(2))
+            Label {
+                text: row.lineTotalText
                 font.pixelSize: Theme.fontSizeBody
                 font.bold: true
-                color: Theme.primary
+                color: row.isPoa ? Theme.textSecondary : Theme.primary
             }
-        }
-
-        QuantityStepper {
-            quantity: delegateRoot.quantity
-            onIncrease: cartModel.increment(delegateRoot.productId)
-            onDecrease: cartModel.decrement(delegateRoot.productId)
-        }
-
-        Button {
-            text: qsTr("Remove")
-            flat: true
-            Material.foreground: Theme.danger
-            onClicked: cartModel.removeProduct(delegateRoot.productId)
         }
     }
 }

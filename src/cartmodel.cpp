@@ -1,8 +1,8 @@
 #include "cartmodel.h"
 
 #include "database.h"
+#include "money.h"
 
-#include <QSqlDatabase>
 #include <QSqlQuery>
 
 CartModel::CartModel(QObject *parent)
@@ -11,16 +11,24 @@ CartModel::CartModel(QObject *parent)
     load();
 }
 
+CartModel *CartModel::create(QQmlEngine *, QJSEngine *jsEngine)
+{
+    Q_ASSERT_X(s_instance, "CartModel::create", "setInstance() must be called before QML loads");
+    Q_ASSERT(jsEngine->thread() == s_instance->thread());
+    QJSEngine::setObjectOwnership(s_instance, QJSEngine::CppOwnership);
+    return s_instance;
+}
+
 int CartModel::rowCount(const QModelIndex &parent) const
 {
     if (parent.isValid())
         return 0;
-    return m_lines.size();
+    return static_cast<int>(m_lines.size());
 }
 
 QVariant CartModel::data(const QModelIndex &index, int role) const
 {
-    if (!index.isValid() || index.row() < 0 || index.row() >= m_lines.size())
+    if (!checkIndex(index, CheckIndexOption::IndexIsValid | CheckIndexOption::ParentIsInvalid))
         return {};
 
     const CartLine &line = m_lines.at(index.row());
@@ -33,12 +41,16 @@ QVariant CartModel::data(const QModelIndex &index, int role) const
         return line.name;
     case UnitRole:
         return line.unit;
-    case PriceRole:
-        return line.price;
+    case PricePenceRole:
+        return line.pricePence;
+    case PriceTextRole:
+        return Money::formatOrPoa(line.pricePence);
+    case IsPoaRole:
+        return line.pricePence == 0;
     case QuantityRole:
         return line.quantity;
-    case LineTotalRole:
-        return line.price * line.quantity;
+    case LineTotalTextRole:
+        return Money::formatOrPoa(line.lineTotalPence());
     }
     return {};
 }
@@ -50,18 +62,38 @@ QHash<int, QByteArray> CartModel::roleNames() const
         {SkuRole, "sku"},
         {NameRole, "name"},
         {UnitRole, "unit"},
-        {PriceRole, "price"},
+        {PricePenceRole, "pricePence"},
+        {PriceTextRole, "priceText"},
+        {IsPoaRole, "isPoa"},
         {QuantityRole, "quantity"},
-        {LineTotalRole, "lineTotal"},
+        {LineTotalTextRole, "lineTotalText"},
     };
 }
 
-double CartModel::total() const
+qint64 CartModel::totalPence() const
 {
-    double sum = 0;
+    qint64 sum = 0;
     for (const CartLine &line : m_lines)
-        sum += line.price * line.quantity;
+        sum += line.lineTotalPence();
     return sum;
+}
+
+QString CartModel::totalText() const
+{
+    if (!hasPoaItems())
+        return Money::format(totalPence());
+    if (totalPence() == 0)
+        return QStringLiteral("POA");
+    return tr("%1 + POA").arg(Money::format(totalPence()));
+}
+
+bool CartModel::hasPoaItems() const
+{
+    for (const CartLine &line : m_lines) {
+        if (line.pricePence == 0)
+            return true;
+    }
+    return false;
 }
 
 int CartModel::itemCount() const
@@ -89,11 +121,10 @@ void CartModel::addProduct(int productId, int quantity)
         return;
     }
 
-    QSqlQuery q(QSqlDatabase::database(Database::connectionName()));
-    q.prepare(QStringLiteral("SELECT sku, name, unit, price FROM products WHERE id = ?"));
+    QSqlQuery q(Database::connection());
+    q.prepare(QStringLiteral("SELECT sku, name, unit, price_pence FROM products WHERE id = ? AND active = 1"));
     q.addBindValue(productId);
-    q.exec();
-    if (!q.next())
+    if (!Database::exec(q) || !q.next())
         return;
 
     CartLine line;
@@ -101,14 +132,18 @@ void CartModel::addProduct(int productId, int quantity)
     line.sku = q.value(0).toString();
     line.name = q.value(1).toString();
     line.unit = q.value(2).toString();
-    line.price = q.value(3).toDouble();
+    line.pricePence = q.value(3).toLongLong();
     line.quantity = quantity;
 
-    beginInsertRows(QModelIndex(), m_lines.size(), m_lines.size());
+    if (!persistLine(line))
+        return;
+
+    const int row = static_cast<int>(m_lines.size());
+    beginInsertRows(QModelIndex(), row, row);
     m_lines.append(line);
     endInsertRows();
 
-    persistLine(line);
+    emit quantityChanged(productId, quantity);
     emit cartChanged();
 }
 
@@ -127,43 +162,44 @@ void CartModel::setQuantity(int productId, int quantity)
         return;
     }
 
-    m_lines[idx].quantity = quantity;
-    persistLine(m_lines[idx]);
+    if (m_lines.at(idx).quantity == quantity)
+        return;
+
+    CartLine updated = m_lines.at(idx);
+    updated.quantity = quantity;
+    if (!persistLine(updated))
+        return;
+    m_lines[idx] = updated;
 
     const QModelIndex modelIndex = index(idx);
-    emit dataChanged(modelIndex, modelIndex, {QuantityRole, LineTotalRole});
+    emit dataChanged(modelIndex, modelIndex, {QuantityRole, LineTotalTextRole});
+    emit quantityChanged(productId, quantity);
     emit cartChanged();
 }
 
 void CartModel::increment(int productId)
 {
-    const int idx = indexOfProduct(productId);
-    if (idx < 0) {
-        addProduct(productId, 1);
-        return;
-    }
-    setQuantity(productId, m_lines.at(idx).quantity + 1);
+    setQuantity(productId, quantityForProduct(productId) + 1);
 }
 
 void CartModel::decrement(int productId)
 {
-    const int idx = indexOfProduct(productId);
-    if (idx < 0)
-        return;
-    setQuantity(productId, m_lines.at(idx).quantity - 1);
+    const int current = quantityForProduct(productId);
+    if (current > 0)
+        setQuantity(productId, current - 1);
 }
 
 void CartModel::removeProduct(int productId)
 {
     const int idx = indexOfProduct(productId);
-    if (idx < 0)
+    if (idx < 0 || !removeLine(productId))
         return;
 
     beginRemoveRows(QModelIndex(), idx, idx);
     m_lines.removeAt(idx);
     endRemoveRows();
 
-    removeLine(productId);
+    emit quantityChanged(productId, 0);
     emit cartChanged();
 }
 
@@ -172,24 +208,31 @@ void CartModel::clear()
     if (m_lines.isEmpty())
         return;
 
+    QSqlQuery q(Database::connection());
+    if (!Database::exec(q, QStringLiteral("DELETE FROM cart_items")))
+        return;
+
+    const QVector<CartLine> removed = m_lines;
     beginResetModel();
     m_lines.clear();
     endResetModel();
 
-    QSqlQuery q(QSqlDatabase::database(Database::connectionName()));
-    q.exec(QStringLiteral("DELETE FROM cart_items"));
+    for (const CartLine &line : removed)
+        emit quantityChanged(line.productId, 0);
     emit cartChanged();
 }
 
 void CartModel::load()
 {
-    QSqlQuery q(QSqlDatabase::database(Database::connectionName()));
-    q.exec(QStringLiteral(R"(
-        SELECT p.id, p.sku, p.name, p.unit, p.price, c.quantity
+    QSqlQuery q(Database::connection());
+    if (!Database::exec(q, QStringLiteral(R"(
+        SELECT p.id, p.sku, p.name, p.unit, p.price_pence, c.quantity
         FROM cart_items c
         JOIN products p ON p.id = c.product_id
+        WHERE p.active = 1
         ORDER BY p.name COLLATE NOCASE
-    )"));
+    )")))
+        return;
 
     while (q.next()) {
         CartLine line;
@@ -197,30 +240,30 @@ void CartModel::load()
         line.sku = q.value(1).toString();
         line.name = q.value(2).toString();
         line.unit = q.value(3).toString();
-        line.price = q.value(4).toDouble();
+        line.pricePence = q.value(4).toLongLong();
         line.quantity = q.value(5).toInt();
         m_lines.append(line);
     }
 }
 
-void CartModel::persistLine(const CartLine &line)
+bool CartModel::persistLine(const CartLine &line)
 {
-    QSqlQuery q(QSqlDatabase::database(Database::connectionName()));
+    QSqlQuery q(Database::connection());
     q.prepare(QStringLiteral(R"(
         INSERT INTO cart_items (product_id, quantity) VALUES (?, ?)
         ON CONFLICT(product_id) DO UPDATE SET quantity = excluded.quantity
     )"));
     q.addBindValue(line.productId);
     q.addBindValue(line.quantity);
-    q.exec();
+    return Database::exec(q);
 }
 
-void CartModel::removeLine(int productId)
+bool CartModel::removeLine(int productId)
 {
-    QSqlQuery q(QSqlDatabase::database(Database::connectionName()));
+    QSqlQuery q(Database::connection());
     q.prepare(QStringLiteral("DELETE FROM cart_items WHERE product_id = ?"));
     q.addBindValue(productId);
-    q.exec();
+    return Database::exec(q);
 }
 
 int CartModel::indexOfProduct(int productId) const

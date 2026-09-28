@@ -1,51 +1,68 @@
 #pragma once
 
 #include <QObject>
+#include <QQmlEngine>
 #include <QString>
 
 class CartModel;
 class OrderModel;
-class ProductModel;
 
-// Top-level actions exposed to QML that span multiple models.
+// Actions exposed to QML that span several models: placing, sending and
+// reordering orders, plus the customer/account details saved on the device.
+// Exposed to QML as the `AppController` singleton.
 class AppController : public QObject
 {
     Q_OBJECT
+    QML_ELEMENT
+    QML_SINGLETON
 
     Q_PROPERTY(QString customerName READ customerName WRITE setCustomerName NOTIFY accountDetailsChanged)
     Q_PROPERTY(QString accountName READ accountName WRITE setAccountName NOTIFY accountDetailsChanged)
+    Q_PROPERTY(QString appVersion READ appVersion CONSTANT)
 
 public:
-    explicit AppController(CartModel *cart, OrderModel *orders, ProductModel *products,
-                            QObject *parent = nullptr);
+    AppController(CartModel *cart, OrderModel *orders, QObject *parent = nullptr);
 
-    // Moves the current basket into a new order, clears the basket and
-    // refreshes order history. Returns false if the basket is empty or the
-    // database write fails.
-    Q_INVOKABLE bool placeOrder(const QString &notes);
-
-    QString customerName() const;
+    QString customerName() const { return m_customerName; }
     void setCustomerName(const QString &name);
 
-    QString accountName() const;
+    QString accountName() const { return m_accountName; }
     void setAccountName(const QString &name);
 
-    // Builds a WhatsApp-friendly summary of the current basket (customer and
-    // account details, then a monospace table of products). Call this before
-    // placeOrder(), which clears the basket.
-    Q_INVOKABLE QString buildShareText(const QString &notes) const;
+    QString appVersion() const;
 
-    // Opens WhatsApp with the given text pre-filled, letting the user pick a
-    // contact to send it to.
-    Q_INVOKABLE void shareViaWhatsApp(const QString &text) const;
+    // Saves the basket as a new "Not sent" order (stamped with the current
+    // customer/account details), then clears the basket. Returns the new
+    // order id, or -1 if the basket is empty or the save failed (in which case
+    // the basket is left untouched and errorOccurred() is emitted).
+    Q_INVOKABLE int placeOrder(const QString &notes);
+
+    // The WhatsApp message for an order (empty if the order doesn't exist).
+    Q_INVOKABLE QString orderShareText(int orderId) const;
+
+    // Opens WhatsApp with the order summary pre-filled so the user can pick
+    // who to send it to. The order stays "Not sent" until markOrderSent().
+    Q_INVOKABLE bool shareOrderViaWhatsApp(int orderId);
+
+    Q_INVOKABLE bool markOrderSent(int orderId);
+
+    // Adds the still-available products from a past order back into the
+    // basket at the same quantities. Returns how many lines were added.
+    Q_INVOKABLE int reorder(int orderId);
 
 signals:
     void accountDetailsChanged();
+    void errorOccurred(const QString &message);
+
+public:
+    static void setInstance(AppController *instance) { s_instance = instance; }
+    static AppController *create(QQmlEngine *qmlEngine, QJSEngine *jsEngine);
 
 private:
     CartModel *m_cart;
     OrderModel *m_orders;
-    ProductModel *m_products;
     QString m_customerName;
     QString m_accountName;
+
+    inline static AppController *s_instance = nullptr;
 };

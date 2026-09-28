@@ -5,18 +5,38 @@ import WaveOrdering
 
 Page {
     id: page
+
+    signal browseRequested()
+    signal reordered(int count)
+
     background: Rectangle { color: Theme.background }
+
+    EmptyState {
+        anchors.centerIn: parent
+        visible: OrderModel.count === 0
+        iconSource: "../icons/orders.png"
+        title: qsTr("No orders yet")
+        message: qsTr("Orders you place will be saved here so you can check, resend or reorder them.")
+        actionText: qsTr("Browse catalogue")
+        onActionTriggered: page.browseRequested()
+    }
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Theme.spacingMedium
-        spacing: Theme.spacingMedium
+        visible: OrderModel.count > 0
+        spacing: 0
 
         Label {
-            text: qsTr("Order History")
-            font.pixelSize: Theme.fontSizeTitle
-            font.bold: true
-            color: Theme.textPrimary
+            Layout.fillWidth: true
+            Layout.margins: Theme.spacingMedium
+            Layout.bottomMargin: Theme.spacingSmall
+            text: OrderModel.pendingCount > 0
+                  ? (OrderModel.pendingCount === 1
+                     ? qsTr("1 order not sent yet")
+                     : qsTr("%1 orders not sent yet").arg(OrderModel.pendingCount))
+                  : qsTr("All orders sent")
+            font.pixelSize: Theme.fontSizeBody
+            color: OrderModel.pendingCount > 0 ? Theme.warning : Theme.textSecondary
         }
 
         ListView {
@@ -25,72 +45,87 @@ Page {
             Layout.fillHeight: true
             spacing: Theme.spacingSmall
             clip: true
-            model: orderModel
+            model: OrderModel
+            bottomMargin: Theme.spacingMedium
+            ScrollIndicator.vertical: ScrollIndicator { }
 
             delegate: Rectangle {
-                width: orderList.width
-                implicitHeight: row.implicitHeight + Theme.spacingMedium * 2
+                id: orderCard
+
+                required property int orderId
+                required property string createdAtText
+                required property string statusText
+                required property bool isSent
+                required property string customerName
+                required property string totalText
+                required property int itemCount
+
+                x: Theme.spacingMedium
+                width: orderList.width - Theme.spacingMedium * 2
+                implicitHeight: cardContent.implicitHeight + 24
                 radius: Theme.radiusMedium
-                color: Theme.surface
+                color: cardTap.pressed ? Qt.rgba(Theme.border.r, Theme.border.g, Theme.border.b, 0.4) : Theme.surface
                 border.color: Theme.border
                 border.width: 1
 
-                RowLayout {
-                    id: row
+                MouseArea {
+                    id: cardTap
                     anchors.fill: parent
-                    anchors.margins: Theme.spacingMedium
-                    spacing: Theme.spacingMedium
+                    onClicked: orderDetailDialog.openFor(orderCard.orderId)
+                }
 
-                    ColumnLayout {
+                ColumnLayout {
+                    id: cardContent
+                    anchors.fill: parent
+                    anchors.margins: 12
+                    spacing: 4
+
+                    RowLayout {
                         Layout.fillWidth: true
-                        spacing: 4
+                        spacing: Theme.spacingSmall
 
                         Label {
-                            text: qsTr("Order #%1").arg(model.id)
+                            text: qsTr("Order #%1").arg(orderCard.orderId)
                             font.pixelSize: Theme.fontSizeBody
                             font.bold: true
                             color: Theme.textPrimary
                         }
-                        Label {
-                            text: model.createdAt + " · " + model.itemCount + " "
-                                  + (model.itemCount === 1 ? qsTr("item") : qsTr("items"))
-                            font.pixelSize: Theme.fontSizeCaption
-                            color: Theme.textSecondary
+
+                        StatusChip {
+                            sent: orderCard.isSent
+                            text: orderCard.statusText
                         }
+
+                        Item { Layout.fillWidth: true }
+
                         Label {
-                            text: model.status
-                            font.pixelSize: Theme.fontSizeCaption
+                            text: orderCard.totalText
+                            font.pixelSize: Theme.fontSizeSubtitle
                             font.bold: true
-                            color: Theme.primary
+                            color: Theme.textPrimary
                         }
                     }
 
                     Label {
-                        text: "£" + model.total.toFixed(2)
-                        font.pixelSize: Theme.fontSizeSubtitle
-                        font.bold: true
-                        color: Theme.textPrimary
+                        Layout.fillWidth: true
+                        text: {
+                            const items = orderCard.itemCount === 1 ? qsTr("1 item") : qsTr("%1 items").arg(orderCard.itemCount)
+                            const parts = [orderCard.createdAtText, items]
+                            if (orderCard.customerName.length > 0)
+                                parts.push(orderCard.customerName)
+                            return parts.join(" · ")
+                        }
+                        font.pixelSize: Theme.fontSizeCaption
+                        color: Theme.textSecondary
+                        elide: Text.ElideRight
                     }
                 }
-
-                MouseArea {
-                    anchors.fill: parent
-                    onClicked: orderDetailDialog.openFor(model.id)
-                }
-            }
-
-            Label {
-                anchors.centerIn: parent
-                visible: orderModel.count === 0
-                text: qsTr("No orders yet.\nPlace your first order from the Basket tab.")
-                horizontalAlignment: Text.AlignHCenter
-                color: Theme.textSecondary
-                font.pixelSize: Theme.fontSizeBody
             }
         }
     }
 
     OrderDetailDialog {
         id: orderDetailDialog
+        onReordered: count => page.reordered(count)
     }
 }

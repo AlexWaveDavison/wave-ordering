@@ -1,23 +1,65 @@
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Controls.Material
 import QtQuick.Layouts
 import WaveOrdering
 
 Page {
     id: page
+
+    signal browseRequested()
+    signal orderPlaced(int orderId)
+
+    function submitOrder() {
+        // Commit the fields explicitly: on mobile, tapping the button doesn't
+        // always fire editingFinished first.
+        AppController.customerName = customerField.text
+        AppController.accountName = accountField.text
+
+        const orderId = AppController.placeOrder(notesField.text)
+        if (orderId < 0)
+            return
+
+        notesField.clear()
+        AppController.shareOrderViaWhatsApp(orderId)
+        page.orderPlaced(orderId)
+    }
+
     background: Rectangle { color: Theme.background }
+
+    EmptyState {
+        anchors.centerIn: parent
+        visible: CartModel.lineCount === 0
+        iconSource: "../icons/basket.png"
+        title: qsTr("Your basket is empty")
+        message: qsTr("Add products from the catalogue and they'll appear here.")
+        actionText: qsTr("Browse catalogue")
+        onActionTriggered: page.browseRequested()
+    }
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Theme.spacingMedium
-        spacing: Theme.spacingMedium
+        visible: CartModel.lineCount > 0
+        spacing: 0
 
-        Label {
-            text: qsTr("Your Basket")
-            font.pixelSize: Theme.fontSizeTitle
-            font.bold: true
-            color: Theme.textPrimary
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.leftMargin: Theme.spacingMedium
+            Layout.rightMargin: Theme.spacingSmall
+            Layout.topMargin: Theme.spacingSmall
+
+            Label {
+                Layout.fillWidth: true
+                text: CartModel.itemCount === 1 ? qsTr("1 item") : qsTr("%1 items").arg(CartModel.itemCount)
+                font.pixelSize: Theme.fontSizeBody
+                color: Theme.textSecondary
+            }
+
+            Button {
+                flat: true
+                text: qsTr("Clear basket")
+                font.pixelSize: Theme.fontSizeCaption + 1
+                onClicked: clearDialog.open()
+            }
         }
 
         ListView {
@@ -26,39 +68,31 @@ Page {
             Layout.fillHeight: true
             spacing: Theme.spacingSmall
             clip: true
-            model: cartModel
+            model: CartModel
+            bottomMargin: Theme.spacingMedium
+            ScrollIndicator.vertical: ScrollIndicator { }
 
             delegate: CartItemDelegate {
-                width: cartList.width
-                productId: model.productId
-                name: model.name
-                sku: model.sku
-                unit: model.unit
-                price: model.price
-                quantity: model.quantity
-                lineTotal: model.lineTotal
-            }
-
-            Label {
-                anchors.centerIn: parent
-                visible: cartList.count === 0
-                text: qsTr("Your basket is empty.\nAdd products from the Catalog tab.")
-                horizontalAlignment: Text.AlignHCenter
-                color: Theme.textSecondary
-                font.pixelSize: Theme.fontSizeBody
+                x: Theme.spacingMedium
+                width: cartList.width - Theme.spacingMedium * 2
             }
         }
 
+        // Order summary sheet
         Rectangle {
             Layout.fillWidth: true
-            radius: Theme.radiusMedium
+            implicitHeight: summary.implicitHeight + Theme.spacingMedium * 2
             color: Theme.surface
-            border.color: Theme.border
-            border.width: 1
-            implicitHeight: summaryColumn.implicitHeight + Theme.spacingMedium * 2
+
+            Rectangle {
+                anchors.top: parent.top
+                width: parent.width
+                height: 1
+                color: Theme.border
+            }
 
             ColumnLayout {
-                id: summaryColumn
+                id: summary
                 anchors.fill: parent
                 anchors.margins: Theme.spacingMedium
                 spacing: Theme.spacingSmall
@@ -70,33 +104,19 @@ Page {
                     TextField {
                         id: customerField
                         Layout.fillWidth: true
+                        Layout.preferredWidth: 1
                         placeholderText: qsTr("Customer name")
-                        text: appController.customerName
-                        onEditingFinished: appController.customerName = text
+                        text: AppController.customerName
+                        onEditingFinished: AppController.customerName = text
                     }
+
                     TextField {
                         id: accountField
                         Layout.fillWidth: true
-                        placeholderText: qsTr("Account name")
-                        text: appController.accountName
-                        onEditingFinished: appController.accountName = text
-                    }
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-
-                    Label {
-                        Layout.fillWidth: true
-                        text: qsTr("Total")
-                        font.pixelSize: Theme.fontSizeSubtitle
-                        color: Theme.textPrimary
-                    }
-                    Label {
-                        text: "£" + cartModel.total.toFixed(2)
-                        font.pixelSize: Theme.fontSizeSubtitle
-                        font.bold: true
-                        color: Theme.primary
+                        Layout.preferredWidth: 1
+                        placeholderText: qsTr("Account no.")
+                        text: AppController.accountName
+                        onEditingFinished: AppController.accountName = text
                     }
                 }
 
@@ -106,35 +126,65 @@ Page {
                     placeholderText: qsTr("Order notes (optional)")
                 }
 
-                Button {
+                RowLayout {
                     Layout.fillWidth: true
-                    text: qsTr("Place Order")
-                    enabled: cartModel.itemCount > 0
-                    Material.background: Theme.primary
-                    Material.foreground: Theme.textOnPrimary
-                    onClicked: {
-                        const shareText = appController.buildShareText(notesField.text)
-                        if (appController.placeOrder(notesField.text)) {
-                            notesField.text = ""
-                            appController.shareViaWhatsApp(shareText)
-                            confirmDialog.open()
+                    Layout.topMargin: 4
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 0
+
+                        Label {
+                            text: qsTr("Total")
+                            font.pixelSize: Theme.fontSizeBody
+                            color: Theme.textPrimary
+                        }
+                        Label {
+                            visible: CartModel.hasPoaItems
+                            text: qsTr("POA items are priced by your rep")
+                            font.pixelSize: Theme.fontSizeCaption
+                            color: Theme.textSecondary
                         }
                     }
+
+                    Label {
+                        text: CartModel.totalText
+                        font.pixelSize: Theme.fontSizeTitle
+                        font.bold: true
+                        color: Theme.primary
+                    }
+                }
+
+                Button {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 52
+                    highlighted: true
+                    enabled: CartModel.lineCount > 0
+                    text: qsTr("Place order & send on WhatsApp")
+                    onClicked: page.submitOrder()
                 }
             }
         }
     }
 
     Dialog {
-        id: confirmDialog
-        title: qsTr("Order placed")
-        modal: true
+        id: clearDialog
         anchors.centerIn: parent
-        standardButtons: Dialog.Ok
+        modal: true
+        title: qsTr("Clear basket?")
+        standardButtons: Dialog.Cancel | Dialog.Discard
+        width: Math.min(page.width - 32, 360)
 
         Label {
-            text: qsTr("Your order has been saved. Choose a contact in WhatsApp to send the order summary.")
+            width: parent.width
+            text: qsTr("This removes every item from your basket.")
             wrapMode: Text.WordWrap
+            color: Theme.textSecondary
+        }
+
+        onDiscarded: {
+            CartModel.clear()
+            close()
         }
     }
 }
